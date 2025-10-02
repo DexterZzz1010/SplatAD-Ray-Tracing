@@ -1,0 +1,9 @@
+[submodule "3dgrut"]
+	path = 3dgrut
+	url = https://github.com/DexterZzz1010/3dgrut.git
+[submodule "neurad-studio"]
+	path = neurad-studio
+	url = https://github.com/DexterZzz1010/neurad-studio.git
+[submodule "splatad"]
+	path = splatad
+	url = https://github.com/DexterZzz1010/splatad.git
