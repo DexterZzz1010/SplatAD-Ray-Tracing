@@ -12,7 +12,7 @@ umask 027
 
 # ====== 可按需修改 ======
 NUSCENES_HOST_ROOT="/datasets/nuscenes"                  # 宿主机数据根：其下应有 v1.0/（含 samples/ sweeps/ maps/ 以及 v1.0-trainval/）
-SINGULARITY_IMAGE="/workspaces/s0002322/src/splatad.sif" # 镜像
+SINGULARITY_IMAGE="/staging/fisheye/mthesis/docker/splatad.sif"
 ORIGINAL_CODE_DIR="/workspaces/s0002322/src/neurad-studio" # 源码（容器内只读）
 RENDER_ROOT="/staging/fisheye/mthesis/splatad/render"    # 所有渲染输出根目录
 # ======================

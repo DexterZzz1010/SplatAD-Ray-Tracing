@@ -71,26 +71,25 @@ singularity exec --nv \
     --bind "${out_dir}":/workspace/outputs \
     --pwd /workspace/neurad-studio \
     "$SINGULARITY_IMAGE" \
-    bash -c '
-    echo "PWD:" $(pwd)
-    
+    bash -c "
     export TORCHDYNAMO_DISABLE=1
     export TORCH_COMPILE_DISABLE=1
     
-    echo ""
-    echo "=== Environment Check ==="
-    python -c "import torch; print(f\"PyTorch: {torch.__version__}\"); print(f\"CUDA: {torch.cuda.is_available()}\")"
-    
-    echo ""
-    echo "=== Starting Training ==="
+    echo '=== Starting Training ==='
     python nerfstudio/scripts/train.py splatad \
         --output-dir /workspace/outputs \
+        --experiment-name reproduce-adsplat-config \
         --vis tensorboard \
         --viewer.quit-on-train-completion True \
-        --pipeline.datamanager.train-num-rays-per-batch 4096 \
+        --pipeline.model.init-opacities 0.005 \
+        --pipeline.model.mcmc-min-opacity 0.005 \
+        --pipeline.datamanager.cache-images cpu \
+        --pipeline.datamanager.cache-lidars gpu \
         nuscenes-data \
-        --data data/nuscenes
-    '
+        --data data/nuscenes \
+        --sequence scene-0104
+    "
+
 
 exit_code=$?
 
