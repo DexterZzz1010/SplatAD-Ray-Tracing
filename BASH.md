@@ -7,6 +7,8 @@ sbatch --partition=ztestpreemp scripts/render.sh /staging/fisheye/mthesis/splata
 
 sbatch --partition=ztestpreemp scripts/render.sh /staging/fisheye/mthesis/splatad/runs/10-03_17-57_2025_splatad_nuscenes_84778386/nuscenes-config1-optimized/splatad/2025-10-03_175809/nerfstudio_models/step-000030000.ckpt
 
+sbatch --partition=ztestpreemp scripts/train_splatgut.sh 
+
 
 tensorboard --logdir shares/staging/fisheye/mthesis/splatad/runs/
 

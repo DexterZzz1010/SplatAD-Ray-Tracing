@@ -38,8 +38,8 @@ experiment_name="splatgut_nuscenes"
 model_name="$(date +"%m-%d_%H-%M_%Y")_${experiment_name}_ns${neurad_commit}_gut${gut_commit}"
 
 # 只copy neurad-studio (会被修改)
-TEMP_NEURAD_DIR=$(mktemp -d "/staging/fisheye/mthesis/splatgut/code/ns${neurad_commit}_${SLURM_JOB_ID}_XXXXXX")
-out_dir="/staging/fisheye/mthesis/splatgut/runs/${model_name}"
+TEMP_NEURAD_DIR=$(mktemp -d "/staging/fisheye/mthesis/splatad/code/ns${neurad_commit}_${SLURM_JOB_ID}_XXXXXX")
+out_dir="/staging/fisheye/mthesis/splatad/runs/${model_name}"
 
 echo "Copying neurad-studio: ${NEURAD_CODE_DIR} -> ${TEMP_NEURAD_DIR}"
 cp -r "$NEURAD_CODE_DIR"/* "$TEMP_NEURAD_DIR"
