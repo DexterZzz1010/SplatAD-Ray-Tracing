@@ -70,6 +70,7 @@ export TORCH_COMPILE_DISABLE=1
 
 # 添加3dgrut到Python路径
 export PYTHONPATH="/workspace/3dgrut:${PYTHONPATH:-}"
+export CUDA_LAUNCH_BLOCKING=1
 
 echo "=== Environment Check ==="
 python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}')"
