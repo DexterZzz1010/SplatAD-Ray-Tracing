@@ -111,7 +111,7 @@ RUN pip install --no-cache-dir \
 # 项目层 1: 3DGRUT
 # ============================================================
 COPY 3dgrut /workspace/3dgrut
-RUN cd /workspace/3dgrut && git submodule update --init --recursive
+RUN cd /workspace/3dgrut
 
 # 临时移除 fused-ssim (最后单独安装)
 RUN cd /workspace/3dgrut && \
@@ -137,7 +137,7 @@ RUN cd /workspace/neurad-studio && \
 # 项目层 3: splatad (gsplat fork)
 # ============================================================
 COPY splatad /workspace/splatad
-RUN cd /workspace/splatad && git submodule update --init --recursive  # 添加这行
+RUN cd /workspace/splatad
 RUN cd /workspace/splatad && \
     BUILD_NO_CUDA=1 pip install --no-build-isolation -e .[dev] -c /tmp/constraints.txt
 
