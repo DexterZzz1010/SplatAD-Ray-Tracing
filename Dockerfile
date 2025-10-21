@@ -111,7 +111,7 @@ RUN pip install --no-cache-dir \
 # 项目层 1: 3DGRUT
 # ============================================================
 COPY 3dgrut /workspace/3dgrut
-RUN cd /workspace/3dgrut && git submodule update --init --recursive
+RUN cd /workspace/3dgrut
 
 # 临时移除 fused-ssim (最后单独安装)
 RUN cd /workspace/3dgrut && \
@@ -137,9 +137,27 @@ RUN cd /workspace/neurad-studio && \
 # 项目层 3: splatad (gsplat fork)
 # ============================================================
 COPY splatad /workspace/splatad
-RUN cd /workspace/splatad && git submodule update --init --recursive  # 添加这行
+RUN cd /workspace/splatad &&
 RUN cd /workspace/splatad && \
     BUILD_NO_CUDA=1 pip install --no-build-isolation -e .[dev] -c /tmp/constraints.txt
+
+# ============================================================
+# 项目层 4: gsplat_original
+# ============================================================
+# 官方 gsplat_original：安装到单独的 target，再重命名为 gsplat_original.gsplat
+ARG GUT_TARGET=/opt/gsplat_original_pkg
+COPY gsplat_original /workspace/gsplat_original
+
+RUN cd /workspace/gsplat_original && \
+    BUILD_NO_CUDA=1 pip install --no-build-isolation \
+        --target ${GUT_TARGET} \
+        . -c /tmp/constraints.txt && \
+    mkdir -p ${GUT_TARGET}/gsplat_original && \
+    mv ${GUT_TARGET}/gsplat ${GUT_TARGET}/gsplat_original/gsplat && \
+    touch ${GUT_TARGET}/gsplat_original/__init__.py && \
+    rm -rf ${GUT_TARGET}/gsplat-*.dist-info
+
+ENV PYTHONPATH="${GUT_TARGET}:${PYTHONPATH}"
 
 # viser 预热缓存
 RUN python -c "import viser; viser.ViserServer()" 2>/dev/null || echo "Viser warmup skipped"

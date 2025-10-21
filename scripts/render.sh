@@ -35,9 +35,33 @@ CONFIG_FILE="${CHECKPOINT_DIR}/config.yml"
 [[ -d "${ORIGINAL_CODE_DIR}" ]] || die "Source code not found: ${ORIGINAL_CODE_DIR}"
 [[ -d "${NUSCENES_HOST_ROOT}/v1.0" ]] || die "${NUSCENES_HOST_ROOT}/v1.0 not found (expected dataset root)"
 
-# 从路径中提取时间戳（固定位置：.../splatad/YYYY-MM-DD_HHMMSS/...）
-RUN_TS="$(printf '%s\n' "${CHECKPOINT_DIR}" | sed -E 's#^.*/splatad/([0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6})(/.*)?$#\1#')"
-[[ "${RUN_TS}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$ ]] || die "Failed to extract timestamp from path: ${CHECKPOINT_DIR}"
+extract_run_ts() {
+  local path="$1"
+  local ts
+
+  # 1) 先找 YYYY-MM-DD_HHMMSS（你的 /splatgut/2025-10-16_151103 就是这种）
+  ts="$(grep -Eo '[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}' <<<"$path" | tail -n1 || true)"
+  if [[ -n "$ts" ]]; then
+    printf '%s\n' "$ts"
+    return 0
+  fi
+
+  # 2) 再找 MM-DD_HH-MM_YYYY（你的 /runs/10-16_15-10_2025 就是这种），统一转成 YYYY-MM-DD_HHMMSS
+  if [[ "$path" =~ ([0-9]{2})-([0-9]{2})_([0-9]{2})-([0-9]{2})_([0-9]{4}) ]]; then
+    #         MM          DD          HH          MM          YYYY
+    local MM="${BASH_REMATCH[1]}"
+    local DD="${BASH_REMATCH[2]}"
+    local HH="${BASH_REMATCH[3]}"
+    local MI="${BASH_REMATCH[4]}"
+    local YYYY="${BASH_REMATCH[5]}"
+    printf '%04d-%02d-%02d_%02d%02d00\n' "$YYYY" "$MM" "$DD" "$HH" "$MI"
+    return 0
+  fi
+
+  return 1
+}
+
+RUN_TS="$(extract_run_ts "${CHECKPOINT_DIR}")" || die "Failed to extract timestamp from path: ${CHECKPOINT_DIR}"
 
 RENDER_OUTPUT_DIR="${RENDER_ROOT}/${RUN_TS}"
 mkdir -p "${RENDER_OUTPUT_DIR}"
@@ -60,55 +84,125 @@ singularity exec --nv \
   --bind "${RENDER_OUTPUT_DIR}":/workspace/renders \
   --pwd /workspace/neurad-studio \
   "${SINGULARITY_IMAGE}" \
-  bash -c '
-    set -Eeuo pipefail
-    IFS=$'\''\n\t'\''
+bash -c '
+  set -Eeuo pipefail
+  IFS=$'\''\n\t'\''
+  log() { printf "[%s] %s\n" "$(date +%H:%M:%S)" "$*"; }
 
-    log() { printf "[%s] %s\n" "$(date +%H:%M:%S)" "$*"; }
+  export TORCHDYNAMO_DISABLE=1
+  export TORCH_COMPILE_DISABLE=1
 
-    export TORCHDYNAMO_DISABLE=1
-    export TORCH_COMPILE_DISABLE=1
+  # 1) 选择那个“真的有 torch 的”Python
+  choose_py() {
+    for p in python3 python; do
+      if command -v "$p" >/dev/null 2>&1; then
+        if "$p" - <<'\''PY'\'' >/dev/null 2>&1; then
+import torch, sys, inspect
+print(sys.executable)
+print(torch.__version__, inspect.getfile(torch))
+PY
+          echo "$p"
+          return 0
+        fi
+      fi
+    done
+    return 1
+  }
+  PYBIN="$(choose_py)" || { echo "ERROR: 未找到可用的 Python(带 torch)"; exit 1; }
+  echo "[env] Using Python: $("$PYBIN" -c "import sys;print(sys.executable)")"
 
-    log "Env check"
-    ls -d /workspace/neurad-studio/data/nuscenes
-    ls /workspace/neurad-studio/data/nuscenes/v1.0-trainval/category.json
-    ls /workspace/checkpoint/nerfstudio_models/*.ckpt | head -1
+  # 2) 把增量依赖装到可写覆盖层，并加入到 PYTHONPATH
+  export PYDEPS_DIR=/workspace/renders/.pydeps
+  mkdir -p "$PYDEPS_DIR" /workspace/renders/.cache/pip
+  export PIP_CACHE_DIR=/workspace/renders/.cache/pip
+  "$PYBIN" -m pip install --no-cache-dir --target "$PYDEPS_DIR" pyyaml kaleido
+  export PYTHONPATH="/workspace/neurad-studio:$PYDEPS_DIR:${PYTHONPATH:-}"
 
-    log "Patch config: version=v1.0-trainval, load_dir=/workspace/checkpoint/nerfstudio_models"
-    python3 - << "PY"
+  log "Env check"
+  ls -d /workspace/neurad-studio/data/nuscenes
+  ls /workspace/neurad-studio/data/nuscenes/v1.0-trainval/category.json
+  ls /workspace/checkpoint/nerfstudio_models/*.ckpt | head -1
+
+  # 3) YAML 仅做字典级解析：禁止 UnsafeLoader 去 import python 对象
+log "Patch config: version=v1.0-trainval, load_dir=/workspace/checkpoint/nerfstudio_models"
+"$PYBIN" - <<'PYCFG'
 import yaml
 from pathlib import Path
 
+# 覆盖未知标签构造器：任何未知 tag（含 python/object 等）都当普通数据解析
+class NoPythonTagLoader(yaml.SafeLoader):
+    pass
+
+def _construct_any(loader, node):
+    from yaml.nodes import MappingNode, SequenceNode, ScalarNode
+    if isinstance(node, MappingNode):
+        return loader.construct_mapping(node, deep=True)
+    if isinstance(node, SequenceNode):
+        return loader.construct_sequence(node, deep=True)
+    if isinstance(node, ScalarNode):
+        return loader.construct_scalar(node)
+    # 兜底
+    return loader.construct_object(node, deep=True)
+
+NoPythonTagLoader.construct_undefined = _construct_any  # ← 关键一行
+
 cfg_path = Path("/workspace/checkpoint/config.yml")
 raw = cfg_path.read_text()
+cfg = yaml.load(raw, Loader=NoPythonTagLoader)
 
-cfg = yaml.load(raw, Loader=yaml.UnsafeLoader)  # 返回对象树
-dp  = cfg.pipeline.datamanager.dataparser
-old_ver = getattr(dp, "version", None)
-dp.version = "v1.0-trainval"
+# 兼容对象/字典两种结构
+def getv(obj, key, default=None):
+    try:
+        return getattr(obj, key)
+    except Exception:
+        try:
+            return obj.get(key, default)
+        except Exception:
+            return default
 
-old_ld = getattr(cfg, "load_dir", None)
-cfg.load_dir = Path("/workspace/checkpoint/nerfstudio_models")
+def setv(obj, key, value):
+    try:
+        setattr(obj, key, value)
+    except Exception:
+        if isinstance(obj, dict):
+            obj[key] = value
+        else:
+            raise
 
-print("dataparser.version:", old_ver, "->", dp.version)
-print("load_dir:", old_ld, "->", cfg.load_dir)
+pipeline    = getv(cfg, "pipeline", {})
+datamanager = getv(pipeline, "datamanager", {})
+dataparser  = getv(datamanager, "dataparser", {})
+
+old_ver = getv(dataparser, "version", None)
+setv(dataparser, "version", "v1.0-trainval")
+
+old_ld = getv(cfg, "load_dir", None)
+# 用字符串，避免再次序列化成 Python 对象标签
+if isinstance(cfg, dict):
+    cfg["load_dir"] = "/workspace/checkpoint/nerfstudio_models"
+else:
+    setattr(cfg, "load_dir", "/workspace/checkpoint/nerfstudio_models")
+
+print("dataparser.version:", old_ver, "->", getv(dataparser, "version"))
+print("load_dir:", old_ld, "->", getv(cfg, "load_dir"))
 
 out = Path("/tmp/config_fixed.yml")
-out.write_text(yaml.dump(cfg, default_flow_style=False))
+out.write_text(yaml.safe_dump(cfg, sort_keys=False))
 print("Wrote:", out)
-PY
+PYCFG
 
-    log "Sanity"
-    ls /workspace/checkpoint/nerfstudio_models/step-*.ckpt | head -3 || true
-    ls /workspace/neurad-studio/data/nuscenes/v1.0-trainval/category.json
+  log "Sanity"
+  ls /workspace/checkpoint/nerfstudio_models/step-*.ckpt | head -3 || true
+  ls /workspace/neurad-studio/data/nuscenes/v1.0-trainval/category.json
 
-    log "Render"
-    python nerfstudio/scripts/render.py dataset \
-      --load-config /tmp/config_fixed.yml \
-      --output-path /workspace/renders \
-      --rendered-output-names rgb
+  log "Render"
+  "$PYBIN" nerfstudio/scripts/render.py dataset \
+    --load-config /tmp/config_fixed.yml \
+    --output-path /workspace/renders \
+    --rendered-output-names rgb \
+    --render-point-clouds True
 
-    log "Done"
-  '
+  log "Done"
+'
 
 log "Results: ${RENDER_OUTPUT_DIR}"

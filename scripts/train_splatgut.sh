@@ -13,16 +13,18 @@ echo "SLURM_JOB_ID: $SLURM_JOB_ID"
 
 # ==================== 路径配置 ====================
 NUSCENES_DATA_DIR="/datasets/nuscenes/v1.0"
-SINGULARITY_IMAGE="/staging/fisheye/mthesis/docker/splatad.sif"
+SINGULARITY_IMAGE="/staging/fisheye/mthesis/docker/splatgut.sif"
 
 # 两个独立的代码目录
 NEURAD_CODE_DIR="/workspaces/s0002322/src/neurad-studio"
 THREEDGUT_CODE_DIR="/workspaces/s0002322/src/3dgrut"
+GSPLAT_CODE_DIR="/workspaces/s0002322/src/gsplat_original"
 
 # ==================== 验证 ====================
 [ -d "$NEURAD_CODE_DIR" ] || { echo "ERROR: neurad-studio not found"; exit 1; }
 [ -d "$THREEDGUT_CODE_DIR" ] || { echo "ERROR: 3dgrut not found"; exit 1; }
 [ -d "$NUSCENES_DATA_DIR" ] || { echo "ERROR: Data dir not found"; exit 1; }
+[ -d "$GSPLAT_CODE_DIR" ] || { echo "ERROR: gsplat dir not found"; exit 1; }
 [ -f "$SINGULARITY_IMAGE" ] || { echo "ERROR: Singularity image not found"; exit 1; }
 
 # ==================== Git 信息 ====================
@@ -58,6 +60,7 @@ echo "Output: ${out_dir}"
 singularity exec --nv \
     --bind "${TEMP_NEURAD_DIR}":/workspace/neurad-studio \
     --bind "${THREEDGUT_CODE_DIR}":/workspace/3dgrut:ro \
+    --bind "${GSPLAT_CODE_DIR}":/workspace/gsplat_original:ro \
     --bind "${NUSCENES_DATA_DIR}":/workspace/neurad-studio/data/nuscenes:ro \
     --bind "${out_dir}":/workspace/outputs \
     --pwd /workspace/neurad-studio \
@@ -95,7 +98,7 @@ except ImportError as e:
 echo ""
 echo "=== Verifying Data Path ==="
 ls -lh /workspace/neurad-studio/data/ || echo "Data mount failed!"
-
+export GUT_DEBUG_EVERY=200
 echo ""
 echo "=== Starting SplatGUT Training ==="
 python nerfstudio/scripts/train.py splatgut \
@@ -105,15 +108,8 @@ python nerfstudio/scripts/train.py splatgut \
     --viewer.quit-on-train-completion True \
     --max-num-iterations 30001 \
     --steps-per-eval-image 250 \
-    --steps-per-save 1000 \
-    --steps-per-eval-all-images 5000 \
-    \
-    `# === 3DGUT 渲染设置 ===` \
-    --pipeline.model.use-ray-tracing True \
-    --pipeline.model.camera-model pinhole \
-    --pipeline.model.k-buffer-size 32 \
-    --pipeline.model.ut-alpha 1.0 \
-    --pipeline.model.ut-beta 0.0 \
+    --steps-per-save 10000 \
+    --steps-per-eval-all-images 10000 \
     \
     `# === SplatAD 优化设置 (继承) ===` \
     --pipeline.model.init-opacities 0.005 \
@@ -131,16 +127,12 @@ python nerfstudio/scripts/train.py splatgut \
     --optimizers.means.optimizer.lr 0.0002 \
     --optimizers.means.scheduler.lr-final 0.000002 \
     \
-    `# === Viewer 设置 ===` \
-    --viewer.num-rays-per-chunk 65536 \
-    \
     `# === Dataset 设置 ===` \
     nuscenes-data \
     --data data/nuscenes \
-    --sequence scene-0103 \
-    --version v1.0-trainval \
+    --version v1.0-mini \
     --cameras all \
-    --add-missing-points True
+    --add-missing-points True \
 
 echo ""
 echo "=== Training completed ==="
