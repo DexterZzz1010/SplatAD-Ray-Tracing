@@ -9,4 +9,4 @@
 	url = https://github.com/DexterZzz1010/splatad.git
 [submodule "gsplat_original"]
 	path = gsplat_original
-	url = ./gsplat_original
+	url = https://github.com/DexterZzz1010/gsplat_original.git
