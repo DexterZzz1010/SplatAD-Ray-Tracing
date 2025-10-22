@@ -95,7 +95,8 @@ RUN pip install --no-cache-dir \
 RUN pip install --no-cache-dir \
     "numpy>=1.24.0,<1.25.0" \
     "scipy==1.11.4" \
-    "jupyter-client<8.0.0"
+    "jupyter-client<8.0.0" \
+    Kaleido
 
 # 创建约束文件
 RUN printf "torch==2.1.2\ntorchvision==0.16.2\ntorchaudio==2.1.2\nnumpy>=1.24.0,<1.25.0\nscipy==1.11.4\njupyter-client<8.0.0\n" > /tmp/constraints.txt
@@ -137,27 +138,16 @@ RUN cd /workspace/neurad-studio && \
 # 项目层 3: splatad (gsplat fork)
 # ============================================================
 COPY splatad /workspace/splatad
-RUN cd /workspace/splatad &&
 RUN cd /workspace/splatad && \
     BUILD_NO_CUDA=1 pip install --no-build-isolation -e .[dev] -c /tmp/constraints.txt
 
-# ============================================================
-# 项目层 4: gsplat_original
-# ============================================================
-# 官方 gsplat_original：安装到单独的 target，再重命名为 gsplat_original.gsplat
-ARG GUT_TARGET=/opt/gsplat_original_pkg
+# ============================================
+# 项目层 4: gsplat_original（原版改名并自动重写导入）
+# 前提：splatad 已先安装，提供 import gsplat
+# ============================================
 COPY gsplat_original /workspace/gsplat_original
-
 RUN cd /workspace/gsplat_original && \
-    BUILD_NO_CUDA=1 pip install --no-build-isolation \
-        --target ${GUT_TARGET} \
-        . -c /tmp/constraints.txt && \
-    mkdir -p ${GUT_TARGET}/gsplat_original && \
-    mv ${GUT_TARGET}/gsplat ${GUT_TARGET}/gsplat_original/gsplat && \
-    touch ${GUT_TARGET}/gsplat_original/__init__.py && \
-    rm -rf ${GUT_TARGET}/gsplat-*.dist-info
-
-ENV PYTHONPATH="${GUT_TARGET}:${PYTHONPATH}"
+    BUILD_NO_CUDA=1 pip install --no-build-isolation -e . -c /tmp/constraints.txt
 
 # viser 预热缓存
 RUN python -c "import viser; viser.ViserServer()" 2>/dev/null || echo "Viser warmup skipped"
@@ -179,6 +169,7 @@ RUN python -c "import kaolin; print('✓ Kaolin 0.17.0')"
 RUN python -c "from fused_ssim import fused_ssim; print('✓ fused-ssim')"
 RUN python -c "from nerfstudio.models.splatad import SplatADModel; print('✓ SplatAD')"
 RUN python -c "import gsplat; print('✓ gsplat (splatad fork)')"
+RUN python -c "import gsplat_original; print('✓ gsplat_original')"
 
 WORKDIR /workspace
 

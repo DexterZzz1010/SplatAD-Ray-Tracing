@@ -78,6 +78,34 @@ export CUDA_LAUNCH_BLOCKING=1
 echo "=== Environment Check ==="
 python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}')"
 
+
+echo "=== Inspect which gsplat is used ==="
+python - <<'PY'
+import importlib, pkgutil
+import gsplat as gs_fork
+print("[fork] gsplat ->", gs_fork.__file__)
+
+gso = importlib.import_module("gsplat_original")
+print("[orig] gsplat_original ->", getattr(gso, "__file__", None))
+
+try:
+    gsc = importlib.import_module("gsplat_original.cuda._wrapper")
+    print("[orig] wrapper ->", gsc.__file__)
+    # 关键：看看扩展模块路径与暴露的符号
+    from gsplat_original import cuda as _cuda_pkg
+    # 扩展通常在 gsplat_original/cuda/_C*.so 或单独叫 gsplat_cuda
+    mods = [m.name for m in pkgutil.iter_modules(_cuda_pkg.__path__)]
+    print("[orig] cuda submods:", mods)
+    # 直接导入扩展并枚举符号
+    _C = importlib.import_module("gsplat_cuda")
+    syms = [s for s in dir(_C) if "CameraModel" in s or "RollingShutter" in s]
+    print("[orig] gsplat_cuda file:", getattr(_C, "__file__", None))
+    print("[orig] gsplat_cuda symbols:", syms[:20])
+except Exception as e:
+    print("[inspect] failed:", e)
+PY
+
+
 echo ""
 echo "=== Verifying 3DGUT Installation ==="
 python -c "
@@ -114,7 +142,7 @@ python nerfstudio/scripts/train.py splatgut \
     `# === SplatAD 优化设置 (继承) ===` \
     --pipeline.model.init-opacities 0.005 \
     --pipeline.model.mcmc-min-opacity 0.005 \
-    --pipeline.model.strategy mcmc \
+    --pipeline.model.strategy=mcmc \
     --pipeline.model.mcmc-cap-max 6000000 \
     --pipeline.model.stop-split-at 20000 \
     --pipeline.model.verbose True \
@@ -122,6 +150,7 @@ python nerfstudio/scripts/train.py splatgut \
     `# === Datamanager 设置 ===` \
     --pipeline.datamanager.cache-images cpu \
     --pipeline.datamanager.cache-lidars gpu \
+    --pipeline.datamanager.train_image_only=True \
     \
     `# === Optimizer 设置 ===` \
     --optimizers.means.optimizer.lr 0.0002 \
@@ -130,7 +159,8 @@ python nerfstudio/scripts/train.py splatgut \
     `# === Dataset 设置 ===` \
     nuscenes-data \
     --data data/nuscenes \
-    --version v1.0-mini \
+    --sequence scene-0103 \
+    --version v1.0-trainval \
     --cameras all \
     --add-missing-points True \
 
